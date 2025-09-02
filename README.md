@@ -141,4 +141,4 @@ npm run dev
 ## 📞 Contact
 
 For queries or contributions:
-📧 Email: [rahuldgowda2004@example.com]
+📧 Email: [rahuldgowda2004@gmail.com]
