@@ -73,7 +73,7 @@ agri-advisor/
 ### **1. Clone the repository**
 
 ```bash
-git clone https://github.com/your-username/agri-advisor.git
+git clone https://github.com/Rahul-22-2004/agri-advisor.git
 cd agri-advisor
 ```
 
