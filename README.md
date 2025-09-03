@@ -1,15 +1,16 @@
 # 🌾 Agri Advisor
 
-Agri Advisor is an AI-powered **multilingual agricultural advisory platform** designed to help farmers get personalized advice on crop management, pest control, soil health, irrigation, and weather forecasts. The platform supports **English, Hindi, and Kannada** and includes voice-based assistance.
+Agri Advisor is an AI-powered **multilingual agricultural advisory platform that enables farmers to check real-time market
+prices of crops and provides location-based weather updates and voice assistance helping them make informed farming decisions.
 
 ---
 
 ## 🚀 Features
 
 - **Multilingual Support** – English, Hindi, and Kannada.
-- **AI-Powered Crop Advisory** – Get tailored advice for farming needs.
-- **Voice Assistance** – Integrates speech-to-text and text-to-speech.
-- **Personalized Recommendations** – Based on farm profile and location.
+- **Voice Assist Advices** – Integrates speech-to-text and text-to-speech.
+- **Real time crop prices** – farmers to check real-time market
+prices of crops.
 - **Weather Insights** – Get real-time weather updates for your area.
 - **History Tracking** – Stores previous advice queries.
 
@@ -91,6 +92,8 @@ PORT=5000
 MONGO_URI=your_mongodb_connection_string
 JWT_SECRET=your_secret_key
 SARVAM_API_KEY=your_api_key
+OPENWEATHER_API_KEY=your_weather_api_key
+DATA_GOV_API_KEY=your_data_gov_api_key
 ```
 
 Start the backend server:
