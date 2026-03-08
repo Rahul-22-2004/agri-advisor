@@ -1,0 +1,21 @@
+FROM node:20-bullseye
+
+WORKDIR /app
+
+# Copy and install
+COPY package*.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy source
+COPY . .
+
+# # Build the app
+# RUN npm run build
+
+# Expose the default Vite port
+EXPOSE 5173
+
+# Start the Vite development server
+CMD ["npm", "run", "dev","--", "--host"]

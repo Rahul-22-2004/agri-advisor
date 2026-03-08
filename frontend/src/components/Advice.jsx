@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Mic, Square, Loader2, Volume2, AlertTriangle } from "lucide-react";
 import { useAuth } from '../context/useAuth.js';
 import axiosInstance from "../utils/axiosInstance";
@@ -10,27 +10,47 @@ const Advice = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [language, setLanguage] = useState("hi-IN");
+
+  // ── Changed: we no longer keep persistent refs for recorder & chunks ──
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const streamRef = useRef(null);           // ← new: keep track of stream
+
   const { token } = useAuth();
 
   const startRecording = async () => {
     try {
+      // Clean up any previous stream/recorder (important!)
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+      if (mediaRecorderRef.current) {
+        mediaRecorderRef.current = null;
+      }
+
       audioChunksRef.current = [];
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream, {
-        mimeType: "audio/webm",
-      });
-
-      mediaRecorderRef.current.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
-      mediaRecorderRef.current.start();
-      setRecording(true);
       setAudioUrl(null);
       setAdviceText("");
       setError("");
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;  // save so we can stop it later
+
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: "audio/webm",
+      });
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.start();
+      mediaRecorderRef.current = mediaRecorder;
+
+      setRecording(true);
     } catch (err) {
       console.error("Error accessing microphone:", err);
       setError("Microphone access denied. Please enable it.");
@@ -38,57 +58,85 @@ const Advice = () => {
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
-      setLoading(true);
-
-      mediaRecorderRef.current.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-        audioChunksRef.current = [];
-
-        const formData = new FormData();
-        formData.append("audio", audioBlob, "query.webm");
-        formData.append("language", language);
-
-        try {
-          if (!token) {
-            setError("Please log in to get personalized advice.");
-            setLoading(false);
-            return;
-          }
-
-          const res = await axiosInstance.post("/api/advice", formData, {
-            headers: {
-              "Content-Type": "multipart/form-data",
-              "Authorization": `Bearer ${token}`,
-            },
-            responseType: "json",
-          });
-
-          const { adviceText, audioBase64 } = res.data;
-          const binaryString = atob(audioBase64);
-          const len = binaryString.length;
-          const bytes = new Uint8Array(len);
-          for (let i = 0; i < len; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-          }
-          const audioBlob = new Blob([bytes], { type: "audio/mpeg" });
-          const url = URL.createObjectURL(audioBlob);
-          setAudioUrl(url);
-          setAdviceText(adviceText || "No advice available.");
-          setError("");
-        } catch (err) {
-          console.error("Advice Error:", err.response?.data || err.message);
-          const errorMessage = err.response?.status === 401
-            ? "Please log in to get personalized advice."
-            : err.response?.data?.error || "Failed to fetch advice. Please try again later.";
-          setError(errorMessage);
-        } finally {
-          setLoading(false);
-        }
-      };
+    if (!mediaRecorderRef.current || mediaRecorderRef.current.state !== "recording") {
+      return;
     }
+
+    setLoading(true);
+    mediaRecorderRef.current.stop();
+
+    mediaRecorderRef.current.onstop = async () => {
+      // Create blob from collected chunks
+      const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+      audioChunksRef.current = [];
+
+      // ── Clean up stream & recorder ──
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+      mediaRecorderRef.current = null;
+
+      const formData = new FormData();
+      formData.append("audio", audioBlob, "query.webm");
+      formData.append("language", language);
+
+      try {
+        if (!token) {
+          setError("Please log in to get personalized advice.");
+          setLoading(false);
+          return;
+        }
+
+        const res = await axiosInstance.post("/api/advice", formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        const { adviceText, audioBase64 } = res.data;
+
+        // Convert base64 → audio blob → playable URL
+        const binaryString = atob(audioBase64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const responseAudioBlob = new Blob([bytes], { type: "audio/mpeg" });
+        const url = URL.createObjectURL(responseAudioBlob);
+
+        setAudioUrl(url);
+        setAdviceText(adviceText || "No advice available.");
+        setError("");
+      } catch (err) {
+        console.error("Advice Error:", err.response?.data || err);
+        const errorMessage =
+          err.response?.status === 401
+            ? "Please log in to get personalized advice."
+            : err.response?.data?.error || "Failed to fetch advice. Please try again.";
+        setError(errorMessage);
+      } finally {
+        setLoading(false);
+        setRecording(false);           // ← important: reset button state
+      }
+    };
   };
+
+  // Optional: cleanup when component unmounts
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
+
+  // ────────────────────────────────────────────────
+  //  JSX remains almost the same — just make sure
+  //  buttons are disabled/enabled correctly
+  // ────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-100 via-white to-blue-50 flex items-center justify-center p-6">
@@ -96,6 +144,8 @@ const Advice = () => {
         <h2 className="text-3xl font-extrabold text-blue-700 mb-6 text-center">
           🌱 Get Agricultural Advice
         </h2>
+
+        {/* Language selector */}
         <div className="mb-4">
           <label htmlFor="language" className="block text-gray-700 font-semibold mb-2">
             Select Language
@@ -112,6 +162,7 @@ const Advice = () => {
             <option value="te-IN">Telugu</option>
           </select>
         </div>
+
         <div className="flex flex-col md:flex-row gap-4 justify-center mb-4">
           <button
             onClick={startRecording}
@@ -125,6 +176,7 @@ const Advice = () => {
             <Mic className="w-5 h-5" />
             {recording ? "Recording..." : "Start Recording"}
           </button>
+
           <button
             onClick={stopRecording}
             disabled={!recording || loading}
@@ -138,17 +190,20 @@ const Advice = () => {
             Stop & Get Advice
           </button>
         </div>
+
         {loading && (
           <div className="flex justify-center my-4">
             <Loader2 className="w-7 h-7 text-blue-600 animate-spin" />
           </div>
         )}
+
         {error && (
           <div className="flex items-center gap-2 bg-red-100 text-red-700 px-4 py-3 rounded-lg border border-red-300 mb-4 shadow-sm">
             <AlertTriangle className="w-5 h-5" />
             <span>{error}</span>
           </div>
         )}
+
         {audioUrl && (
           <div className="mt-6 bg-blue-50 p-4 rounded-xl border border-blue-200 shadow-inner">
             <div className="flex items-center gap-3 mb-3">
@@ -156,7 +211,7 @@ const Advice = () => {
               <span className="font-semibold text-blue-700">Your Personalized Advice</span>
             </div>
             <audio
-              key={audioUrl}
+              key={audioUrl}           // forces remount when url changes
               className="w-full mt-2 rounded-lg shadow-sm border border-blue-300"
               controls
               autoPlay
